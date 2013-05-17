@@ -1,18 +1,26 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web;
-using System.Web.Http;
-using Castle.MicroKernel.Registration;
-using Castle.MicroKernel.SubSystems.Configuration;
-using Castle.Windsor;
-using WebAPI.Hmac.Controllers;
-using WebApi.Core;
-
-namespace WebAPI.Hmac
+﻿namespace WebAPI.Hmac
 {
+    using Castle.MicroKernel.Registration;
+    using Castle.MicroKernel.SubSystems.Configuration;
+    using Castle.Windsor;
+    using WebApi.Core;
+
+    using WebAPI.Hmac.Controllers;
+
+    /// <summary>
+    /// The controller installer.
+    /// </summary>
     public class ControllerInstaller : IWindsorInstaller
     {
+        /// <summary>
+        /// The install.
+        /// </summary>
+        /// <param name="container">
+        /// The container.
+        /// </param>
+        /// <param name="store">
+        /// The store.
+        /// </param>
         public void Install(IWindsorContainer container, IConfigurationStore store)
         {
             container

@@ -1,32 +1,61 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web.Http.Dependencies;
-
-namespace WebApi.Core.Dependency
+﻿namespace WebApi.Core.Dependency
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Web.Http.Dependencies;
+
+    /// <summary>
+    /// The windsor dependency scope.
+    /// </summary>
     public class WindsorDependencyScope : IDependencyScope
     {
         private readonly IDependencyScope _scope;
+
         private readonly Action<object> _releaseActions;
+
         private readonly List<object> _objectInstances;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="WindsorDependencyScope"/> class.
+        /// </summary>
+        /// <param name="scope">
+        /// The scope.
+        /// </param>
+        /// <param name="releaseAction">
+        /// The release action.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// </exception>
         public WindsorDependencyScope(IDependencyScope scope, Action<object> releaseAction)
         {
             if (scope == null)
+            {
                 throw new ArgumentNullException("scope");
+            }
 
             if (releaseAction == null)
+            {
                 throw new ArgumentNullException("releaseAction");
+            }
 
             _scope = scope;
             _releaseActions = releaseAction;
             _objectInstances = new List<object>();
         }
 
+        /// <summary>
+        /// The get service.
+        /// </summary>
+        /// <param name="type">
+        /// The type.
+        /// </param>
+        /// <returns>
+        /// The <see cref="object"/>.
+        /// </returns>
         public object GetService(Type type)
         {
-            object service = _scope.GetService(type);
+            var service = _scope.GetService(type);
             AddToScope(service);
 
             return service;
@@ -40,6 +69,23 @@ namespace WebApi.Core.Dependency
             return services;
         }
 
+        /// <summary>
+        /// The add to scope.
+        /// </summary>
+        /// <param name="services">
+        /// The services.
+        /// </param>
+        private void AddToScope(params object[] services)
+        {
+            if (services.Any())
+            {
+                _objectInstances.AddRange(services);
+            }
+        }
+
+        /// <summary>
+        /// The dispose.
+        /// </summary>
         public void Dispose()
         {
             foreach (object instance in _objectInstances)
@@ -48,14 +94,6 @@ namespace WebApi.Core.Dependency
             }
 
             _objectInstances.Clear();
-        }
-
-        private void AddToScope(params object[] services)
-        {
-            if (services.Any())
-            {
-                _objectInstances.AddRange(services);
-            }
         }
     }
 }

@@ -1,58 +1,168 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.Globalization;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Runtime.Caching;
-using System.Security.Cryptography;
-using System.Text;
-using System.Web;
-using System.Web.Http.Controllers;
-using System.Web.Http.Filters;
-using WebApi.Core;
-
-namespace WebAPI.Hmac.Filters
+﻿namespace WebAPI.Hmac.Filters
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Collections.Specialized;
+    using System.Globalization;
+    using System.Linq;
+    using System.Net;
+    using System.Net.Http;
+    using System.Net.Http.Headers;
+    using System.Runtime.Caching;
+    using System.Security.Cryptography;
+    using System.Text;
+    using System.Web;
+    using System.Web.Http.Controllers;
+    using System.Web.Http.Filters;
+
+    using WebApi.Core;
+
     public class AuthenticateAttribute : ActionFilterAttribute
     {
         private const string AuthenticationHeaderName = "Authentication";
+
         private const string TimestampHeaderName = "Timestamp";
 
         public IAccountRepository Repository { get; set; }
 
-        private static string ComputeHash(string hashedPassword, string message)
+        private bool IsAuthenticated(HttpActionContext actionContext)
         {
-            var key = Encoding.UTF8.GetBytes(hashedPassword.ToUpper());
-            string hashString;
+            var headers = actionContext.Request.Headers;
 
-            using (var hmac = new HMACSHA256(key))
+            var timeStampString = GetHttpRequestHeader(headers, TimestampHeaderName);
+            if (!IsDateValidated(timeStampString))
             {
-                var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
-                hashString = Convert.ToBase64String(hash);
+                return false;
             }
 
-            return hashString;
+            var authenticationString = GetHttpRequestHeader(headers, AuthenticationHeaderName);
+            if (string.IsNullOrEmpty(authenticationString))
+            {
+                return false;
+            }
+
+            var authenticationParts = authenticationString.Split(new[] { ":" },
+                    StringSplitOptions.RemoveEmptyEntries);
+
+            if (authenticationParts.Length != 2)
+            {
+                return false;
+            }
+
+            var username = authenticationParts[0];
+            var signature = authenticationParts[1];
+
+            if (!IsSignatureValidated(signature))
+            {
+                return false;
+            }
+
+            AddToMemoryCache(signature);
+
+            var hashedPassword = GetHashedPassword(username);
+            var baseString = BuildBaseString(actionContext);
+
+            return IsAuthenticated(hashedPassword, baseString, signature);
         }
 
-        private static void AddNameValuesToCollection(List<KeyValuePair<string, string>> parameterCollection,
-            NameValueCollection nameValueCollection)
+        private string GetHashedPassword(string username)
         {
-            if (!nameValueCollection.AllKeys.Any())
-                return;
+            Repository = new AccountRepository();
 
-            foreach (var key in nameValueCollection.AllKeys)
+            return Repository.GetHashedPassword(username);
+        }
+
+        private static void AddToMemoryCache(string signature)
+        {
+            var memoryCache = MemoryCache.Default;
+            if (!memoryCache.Contains(signature))
             {
-                var value = nameValueCollection[key];
-                var pair = new KeyValuePair<string, string>(key, value);
-
-                parameterCollection.Add(pair);
+                var expiration = DateTimeOffset.UtcNow.AddMinutes(5);
+                memoryCache.Add(signature, signature, expiration);
             }
         }
 
-        private static List<KeyValuePair<string, string>> BuildParameterCollection(HttpActionContext actionContext)
+        private static bool IsSignatureValidated(string signature)
+        {
+            var memoryCache = MemoryCache.Default;
+            if (memoryCache.Contains(signature))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsDateValidated(string timestampString)
+        {
+            DateTime timestamp;
+
+            bool isDateTime = DateTime.TryParseExact(timestampString, "U", null,
+                                                     DateTimeStyles.AdjustToUniversal, out timestamp);
+
+            if (!isDateTime)
+            {
+                return false;
+            }
+
+            var now = DateTime.UtcNow;
+
+            // TimeStamp should not be in 5 minutes behind
+            if (timestamp < now.AddMinutes(-5))
+            {
+                return false;
+            }
+
+            if (timestamp > now.AddMinutes(5))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string BuildBaseString(HttpActionContext actionContext)
+        {
+            var headers = actionContext.Request.Headers;
+            var date = GetHttpRequestHeader(headers, TimestampHeaderName);
+
+            var methodType = actionContext.Request.Method.Method;
+
+            var absolutePath = actionContext.Request.RequestUri.AbsolutePath.ToLower();
+            var uri = HttpContext.Current.Server.UrlDecode(absolutePath);
+
+            var parameterMessage = BuildParameterMessage(actionContext);
+            var message = string.Join("\n", methodType, date, uri, parameterMessage);
+
+            return message;
+        }
+
+        private static string GetHttpRequestHeader(HttpHeaders headers, string headerName)
+        {
+            if (!headers.Contains(headerName))
+            {
+                return string.Empty;
+            }
+
+            return headers.GetValues(headerName).SingleOrDefault();
+        }
+
+        private static string BuildParameterMessage(HttpActionContext actionContext)
+        {
+            var parameterCollection = BuildParameterCollection(actionContext);
+            if (!parameterCollection.Any())
+            {
+                return string.Empty;
+            }
+
+            var keyValueStrings = parameterCollection.Select(pair =>
+                                                             string.Format("{0}={1}", pair.Key, pair.Value));
+
+            return string.Join("&", keyValueStrings);
+        }
+
+        private static List<KeyValuePair<string, string>> BuildParameterCollection(
+            HttpActionContext actionContext)
         {
             // Use the list of keyvalue pair in order to allow the same key instead of dictionary
             var parameterCollection = new List<KeyValuePair<string, string>>();
@@ -66,132 +176,21 @@ namespace WebAPI.Hmac.Filters
             return parameterCollection.OrderBy(pair => pair.Key).ToList();
         }
 
-        private static string BuildParameterMessage(HttpActionContext actionContext)
+        private static void AddNameValuesToCollection(
+            List<KeyValuePair<string, string>> parameterCollection,
+            NameValueCollection nameValueCollection)
         {
-            var parameterCollection = BuildParameterCollection(actionContext);
-            if (!parameterCollection.Any())
-                return string.Empty;
-
-            var keyValueStrings = parameterCollection.Select(pair =>
-                string.Format("{0}={1}", pair.Key, pair.Value));
-
-            return string.Join("&", keyValueStrings);
-        }
-
-        private static string GetHttpRequestHeader(HttpHeaders headers, string headerName)
-        {
-            if (!headers.Contains(headerName))
-                return string.Empty;
-
-            return headers.GetValues(headerName)
-                            .SingleOrDefault();
-        }
-
-        private static string BuildBaseString(HttpActionContext actionContext)
-        {
-            var headers = actionContext.Request.Headers;
-            string date = GetHttpRequestHeader(headers, TimestampHeaderName);
-
-            string methodType = actionContext.Request.Method.Method;
-
-            var absolutePath = actionContext.Request.RequestUri.AbsolutePath.ToLower();
-            var uri = HttpContext.Current.Server.UrlDecode(absolutePath);
-
-            string parameterMessage = BuildParameterMessage(actionContext);
-            string message = string.Join("\n", methodType, date, uri, parameterMessage);
-
-            return message;
-        }
-
-        private static bool IsAuthenticated(string hashedPassword, string message, string signature)
-        {
-            if (string.IsNullOrEmpty(hashedPassword))
-                return false;
-
-            var verifiedHash = ComputeHash(hashedPassword, message);
-            if (signature != null && signature.Equals(verifiedHash))
-                return true;
-
-            return false;
-        }
-
-        private static bool IsDateValidated(string timestampString)
-        {
-            DateTime timestamp;
-
-            bool isDateTime = DateTime.TryParseExact(timestampString, "U", null,
-                DateTimeStyles.AdjustToUniversal, out timestamp);
-
-            if (!isDateTime)
-                return false;
-
-            var now = DateTime.UtcNow;
-
-            // TimeStamp should not be in 5 minutes behind
-            if (timestamp < now.AddMinutes(-5))
-                return false;
-
-            if (timestamp > now.AddMinutes(5))
-                return false;
-
-            return true;
-        }
-
-        private static bool IsSignatureValidated(string signature)
-        {
-            var memoryCache = MemoryCache.Default;
-            if (memoryCache.Contains(signature))
-                return false;
-
-            return true;
-        }
-
-        private static void AddToMemoryCache(string signature)
-        {
-            var memoryCache = MemoryCache.Default;
-            if (!memoryCache.Contains(signature))
+            if (!nameValueCollection.AllKeys.Any())
             {
-                var expiration = DateTimeOffset.UtcNow.AddMinutes(5);
-                memoryCache.Add(signature, signature, expiration);
+                return;
             }
-        }
 
-        private string GetHashedPassword(string username)
-        {
-            Repository = new AccountRepository();
-            return Repository.GetHashedPassword(username);
-        }
-
-        private bool IsAuthenticated(HttpActionContext actionContext)
-        {
-            var headers = actionContext.Request.Headers;
-
-            var timeStampString = GetHttpRequestHeader(headers, TimestampHeaderName);
-            if (!IsDateValidated(timeStampString))
-                return false;
-
-            var authenticationString = GetHttpRequestHeader(headers, AuthenticationHeaderName);
-            if (string.IsNullOrEmpty(authenticationString))
-                return false;
-
-            var authenticationParts = authenticationString.Split(new[] { ":" },
-                    StringSplitOptions.RemoveEmptyEntries);
-
-            if (authenticationParts.Length != 2)
-                return false;
-
-            var username = authenticationParts[0];
-            var signature = authenticationParts[1];
-
-            if (!IsSignatureValidated(signature))
-                return false;
-
-            AddToMemoryCache(signature);
-
-            var hashedPassword = GetHashedPassword(username);
-            var baseString = BuildBaseString(actionContext);
-
-            return IsAuthenticated(hashedPassword, baseString, signature);
+            foreach (var key in nameValueCollection.AllKeys)
+            {
+                var value = nameValueCollection[key];
+                var pair = new KeyValuePair<string, string>(key, value);
+                parameterCollection.Add(pair);
+            }
         }
 
         public override void OnActionExecuting(HttpActionContext actionContext)
@@ -203,6 +202,36 @@ namespace WebAPI.Hmac.Filters
                 var response = new HttpResponseMessage(HttpStatusCode.Unauthorized);
                 actionContext.Response = response;
             }
+        }
+
+        private static bool IsAuthenticated(string hashedPassword, string message, string signature)
+        {
+            if (string.IsNullOrEmpty(hashedPassword))
+            {
+                return false;
+            }
+
+            var verifiedHash = ComputeHash(hashedPassword, message);
+            if (signature != null && signature.Equals(verifiedHash))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string ComputeHash(string hashedPassword, string message)
+        {
+            var key = Encoding.UTF8.GetBytes(hashedPassword.ToUpper());
+            string hashString;
+
+            using (var hmac = new HMACSHA256(key))
+            {
+                var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
+                hashString = Convert.ToBase64String(hash);
+            }
+
+            return hashString;
         }
     }
 }

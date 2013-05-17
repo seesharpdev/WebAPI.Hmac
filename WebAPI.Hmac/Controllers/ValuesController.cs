@@ -1,10 +1,14 @@
-﻿using System;
-using System.Web.Http;
-using WebAPI.Hmac.Filters;
-using WebApi.Core;
-
-namespace WebAPI.Hmac.Controllers
+﻿namespace WebAPI.Hmac.Controllers
 {
+    using System.Web.Http;
+
+    using WebApi.Core;
+
+    using WebAPI.Hmac.Filters;
+
+    /// <summary>
+    /// The values controller.
+    /// </summary>
     [Authenticate]
     public class ValuesController : ApiController
     {

@@ -1,31 +1,37 @@
-﻿using System.Web.Http;
-using System.Web.Routing;
-using Castle.Windsor;
-using WebAPI.Hmac.Filters;
-using WebApi.Core.Dependency;
-
-namespace WebAPI.Hmac
+﻿namespace WebAPI.Hmac
 {
-    public class MvcApplication : System.Web.HttpApplication
+    using System.Web;
+    using System.Web.Http;
+    using System.Web.Routing;
+
+    using Castle.Windsor;
+    using WebApi.Core.Dependency;
+
+    using WebAPI.Hmac.Filters;
+
+    /// <summary>
+    /// The mvc application.
+    /// </summary>
+    public class MvcApplication : HttpApplication
     {
         private static readonly IWindsorContainer WindsorContainer = new WindsorContainer();
 
-        public static void RegisterRoutes(RouteCollection routes)
+        protected void Application_Start()
         {
-            routes.MapHttpRoute(
-                name: "DefaultApi",
-                routeTemplate: "api/{controller}/{id}",
-                defaults: new { id = RouteParameter.Optional }
-            );
+            log4net.Config.XmlConfigurator.Configure();
+
+            RegisterDependencies();
+            RegisterGlobalFilters();
+
+            RegisterRoutes(RouteTable.Routes);
+            log4net.Config.XmlConfigurator.Configure();
         }
 
         private static void RegisterDependencies()
         {
-            WindsorContainer
-                .Install(
-                            new CustomizedWebApiInstaller(GlobalConfiguration.Configuration, typeof(MvcApplication).Assembly),
-                            new ControllerInstaller()
-                        );
+            WindsorContainer.Install(
+                new CustomizedWebApiInstaller(GlobalConfiguration.Configuration, typeof(MvcApplication).Assembly),
+                new ControllerInstaller());
 
             var windsorDependencyResolver = new WindsorDependencyResolver(WindsorContainer);
             GlobalConfiguration.Configuration.DependencyResolver = windsorDependencyResolver;
@@ -37,15 +43,12 @@ namespace WebAPI.Hmac
             configuration.Filters.Add(new UnhandleExceptionAttribute());
         }
 
-        protected void Application_Start()
+        public static void RegisterRoutes(RouteCollection routes)
         {
-            log4net.Config.XmlConfigurator.Configure(); 
-
-            RegisterDependencies();
-            RegisterGlobalFilters();
-
-            RegisterRoutes(RouteTable.Routes);
-            log4net.Config.XmlConfigurator.Configure(); 
+            routes.MapHttpRoute(
+                name: "DefaultApi",
+                routeTemplate: "api/{controller}/{id}",
+                defaults: new { id = RouteParameter.Optional });
         }
     }
 }

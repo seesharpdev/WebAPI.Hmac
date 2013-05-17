@@ -50,7 +50,7 @@
     <Compile Include="AccountRepository.cs" />
     <Compile Include="Dependency\CustomizedWebApiInstaller.cs" />
     <Compile Include="Dependency\WindsorDependencyScope.cs" />
-    <Compile Include="Dependency\WindsorExtension.cs" />
+    <Compile Include="Dependency\WindsorExtensions.cs" />
     <Compile Include="Dependency\WindsorDependencyResolver.cs" />
     <Compile Include="Dependency\WindsorHttpControllerSelector.cs" />
     <Compile Include="IAccountRepository.cs" />

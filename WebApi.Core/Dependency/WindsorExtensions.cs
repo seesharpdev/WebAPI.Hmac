@@ -1,10 +1,23 @@
-﻿using System.Reflection;
-using Castle.MicroKernel;
-
-namespace WebApi.Core.Dependency
+﻿namespace WebApi.Core.Dependency
 {
-    public static class WindsorExtension
+    using System.Reflection;
+
+    using Castle.MicroKernel;
+
+    /// <summary>
+    /// The windsor extensions.
+    /// </summary>
+    public static class WindsorExtensions
     {
+        /// <summary>
+        /// The inject properties.
+        /// </summary>
+        /// <param name="kernel">
+        /// The kernel.
+        /// </param>
+        /// <param name="target">
+        /// The target.
+        /// </param>
         public static void InjectProperties(this IKernel kernel, object target)
         {
             var type = target.GetType();
